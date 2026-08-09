@@ -1,3 +1,0 @@
-//environment variable for authentication:
-//ingest document  environment variable for authentication:
-//readmdcp
