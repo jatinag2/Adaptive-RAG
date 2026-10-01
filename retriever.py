@@ -2,7 +2,8 @@ import logging
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain_community.vectorstores import Chroma
 from langchain_community.retrievers import BM25Retriever
-from langchain.retrievers import EnsembleRetriever
+# from langchain.retrievers import EnsembleRetriever
+from langchain_classic.retrievers import EnsembleRetriever
 from langchain_core.documents import Document
 from tenacity import retry, stop_after_attempt, wait_exponential
 from sentence_transformers import CrossEncoder
