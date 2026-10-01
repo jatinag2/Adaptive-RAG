@@ -2,10 +2,10 @@ import streamlit as st
 import os
 import tempfile
 from graph import app 
-from langchain_community.document_loaders import PyMuPDFLoader
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_google_genai import GoogleGenerativeAIEmbeddings
-from langchain_community.vectorstores import Chroma
+from ingest import load_and_chunk_pdf, embed_and_store
+from config import settings
+
+MAX_FILE_SIZE_MB = 10
 
 # --- Configuration & Layout ---
 st.set_page_config(page_title="Adaptive RAG Agent", layout="centered", initial_sidebar_state="expanded")
@@ -21,35 +21,35 @@ if "processed_files" not in st.session_state:
 # --- Helper Function: On-the-fly Ingestion ---
 def process_uploaded_file(uploaded_file):
     """Saves the uploaded file temporarily, chunks it, and adds it to ChromaDB."""
-    # Create a temporary file to allow PyMuPDFLoader to read from a file path
+    file_size_mb = uploaded_file.size / (1024 * 1024)
+    if file_size_mb > MAX_FILE_SIZE_MB:
+        st.error(f"File size ({file_size_mb:.2f} MB) exceeds the {MAX_FILE_SIZE_MB} MB limit.")
+        return False
+
     with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as temp_file:
         temp_file.write(uploaded_file.getvalue())
         temp_path = temp_file.name
 
     try:
-        # 1. Load PDF
-        loader = PyMuPDFLoader(file_path=temp_path)
-        pages = loader.load()
+        progress_bar = st.progress(0)
+        st.text("Loading PDF...")
+        chunks = load_and_chunk_pdf(temp_path)
+        progress_bar.progress(50)
         
-        # 2. Chunking
-        text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
-        chunks = text_splitter.split_documents(pages)
-        print(f"Pages loaded: {len(pages)}")
-        print(f"Chunks created: {len(chunks)}")
-
+        st.text(f"Embedding and storing {len(chunks)} chunks...")
         if not chunks:
            raise ValueError("No text chunks were created from this PDF.")
-        # 3. Embed & Store
-        embeddings = GoogleGenerativeAIEmbeddings(model="gemini-embedding-001")
-        Chroma.from_documents(documents=chunks, embedding=embeddings, persist_directory="./chroma_db")
+        
+        embed_and_store(chunks)
+        progress_bar.progress(100)
         
         return True
     except Exception as e:
         st.error(f"Error processing file: {e}")
         return False
     finally:
-        # Clean up the temporary file
-        os.remove(temp_path)
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
 
 # --- Sidebar: Knowledge Base Management ---
 with st.sidebar:
@@ -65,14 +65,14 @@ with st.sidebar:
                 st.session_state.processed_files.add(uploaded_file.name)
                 st.session_state.current_doc = uploaded_file.name
                 st.toast("Document successfully ingested! 🎉", icon="✅")
-                # Rerun to update the main UI badge
                 st.rerun()
 
     st.divider()
     st.markdown("**System Settings**")
     st.caption("Vector DB: `Chroma`")
-    st.caption("Embedding: `gemini-embedding-001`")
-    st.caption("Model: `gemini-3.6-flash`")
+    st.caption(f"Embedding: `{settings.embedding_model}`")
+    st.caption(f"Model: `{settings.llm_model}`")
+    st.caption(f"Max Iterations: `{settings.max_iterations}`")
 
 # --- UI Styling (CSS) ---
 st.markdown("""
@@ -142,6 +142,7 @@ if active_prompt:
         with st.status("Agent is thinking...", expanded=True) as status_box:
             initial_state = {"question": active_prompt, "search_count": 0}
             final_generation = ""
+            final_sources = []
             
             # Execute the LangGraph workflow
             for output in app.stream(initial_state):
@@ -149,9 +150,25 @@ if active_prompt:
                     st.write(f"🔄 Executed Node: **{node_name}**")
                     if "generation" in state_data:
                         final_generation = state_data["generation"]
+                    if "sources" in state_data:
+                        final_sources = state_data["sources"]
             
             status_box.update(label="Response generated!", state="complete", expanded=False)
         
         st.markdown(final_generation)
-        st.session_state.messages.append({"role": "assistant", "content": final_generation})
+        
+        # Display Sources
+        if final_sources:
+            st.markdown("---")
+            st.markdown("**Sources:**")
+            for source in final_sources:
+                st.markdown(f"- `{source}`")
+                
+        # Append full content to session state
+        message_content = final_generation
+        if final_sources:
+            sources_text = "\n\n**Sources:**\n" + "\n".join([f"- `{s}`" for s in final_sources])
+            message_content += sources_text
+            
+        st.session_state.messages.append({"role": "assistant", "content": message_content})
         st.rerun()

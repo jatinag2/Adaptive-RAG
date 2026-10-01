@@ -12,4 +12,5 @@ class GraphState(TypedDict):
     search_count:int
     hallucination_score:str
     relevance_score:str
+    sources: List[str]
    

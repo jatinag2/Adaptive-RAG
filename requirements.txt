@@ -6,3 +6,14 @@ chromadb
 pymupdf
 pydantic
 streamlit
+python-dotenv
+pydantic-settings
+duckduckgo-search
+tenacity
+fastapi
+uvicorn
+python-multipart
+pytest
+sentence-transformers
+rank_bm25
+ragas
